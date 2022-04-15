@@ -153,6 +153,9 @@ def parse_qs_bytes(
     Keys still become type str (interpreted as latin1 in python3!)
     because it's too painful to keep them as byte strings in
     python3 and in practice they're nearly always ascii anyway.
+
+    在 2to3 发现问题，逻辑代码里面直接序列化 request.arguments 进行持久化
+    因为这里是 bytes 所以报错
     """
     # This is gross, but python3 doesn't give us another way.
     # Latin1 is the universal donor of character encodings.
