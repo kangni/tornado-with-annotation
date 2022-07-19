@@ -300,6 +300,8 @@ class RequestHandler(object):
         This method is a counterpart to `prepare`.  ``on_finish`` may
         not produce any output, as it is called after the response
         has been sent to the client.
+
+        实际上是由 finish() 调用.
         """
         pass
 
@@ -372,6 +374,7 @@ class RequestHandler(object):
     def set_header(self, name: str, value: _HeaderTypes) -> None:
         """Sets the given response header name and value.
 
+        相同的 name, value 以最近一次 set 为准。
         All header values are converted to strings (`datetime` objects
         are formatted according to the HTTP specification for the
         ``Date`` header).
@@ -382,6 +385,7 @@ class RequestHandler(object):
     def add_header(self, name: str, value: _HeaderTypes) -> None:
         """Adds the given response header and value.
 
+        name 可以叠加, 即 header 里可以有多个相同 name.
         Unlike `set_header`, `add_header` may be called multiple times
         to return multiple values for the same header.
         """
@@ -453,6 +457,7 @@ class RequestHandler(object):
         last value.
 
         This method searches both the query and body arguments.
+        从 query 和 body 参数中获取.
         """
         return self._get_argument(name, default, self.request.arguments, strip)
 
@@ -462,6 +467,7 @@ class RequestHandler(object):
         If the argument is not present, returns an empty list.
 
         This method searches both the query and body arguments.
+        从 query 和 body 参数中获取.
         """
 
         # Make sure `get_arguments` isn't accidentally being called with a
@@ -836,6 +842,7 @@ class RequestHandler(object):
         if not isinstance(chunk, (bytes, unicode_type, dict)):
             message = "write() only accepts bytes, unicode, and dict objects"
             if isinstance(chunk, list):
+                # list 会被认为是不安全的
                 message += (
                     ". Lists not accepted for security reasons; see "
                     + "http://www.tornadoweb.org/en/stable/web.html#tornado.web.RequestHandler.write"  # noqa: E501
@@ -843,6 +850,8 @@ class RequestHandler(object):
             raise TypeError(message)
         if isinstance(chunk, dict):
             chunk = escape.json_encode(chunk)
+            # 对于 dict, 会自动设置 content-type 为 json
+            # 如果不想要这个 content-type, 可以在 on_finish 那边重新 set.
             self.set_header("Content-Type", "application/json; charset=UTF-8")
         chunk = utf8(chunk)
         self._write_buffer.append(chunk)
@@ -1060,6 +1069,8 @@ class RequestHandler(object):
     def flush(self, include_footers: bool = False) -> "Future[None]":
         """Flushes the current output buffer to the network.
 
+        # 将输入缓冲区的数据写入 socket.
+
         .. versionchanged:: 4.0
            Now returns a `.Future` if no callback is given.
 
@@ -1109,6 +1120,9 @@ class RequestHandler(object):
 
     def finish(self, chunk: Optional[Union[str, bytes, dict]] = None) -> "Future[None]":
         """Finishes this response, ending the HTTP request.
+
+        # 因为 _auto_finish 默认为 True, 请求会在 return 时自动调用 finish().
+        # 只有在使用了异步装饰器 asynchronous 或者 _auto_finish 为 False 时，才需要手动调用 finish().
 
         Passing a ``chunk`` to ``finish()`` is equivalent to passing that
         chunk to ``write()`` and then calling ``finish()`` with no arguments.
@@ -1224,6 +1238,8 @@ class RequestHandler(object):
 
     def write_error(self, status_code: int, **kwargs: Any) -> None:
         """Override to implement custom error pages.
+
+        通过重写来自定义错误页面
 
         ``write_error`` may call `write`, `render`, `set_header`, etc
         to produce output as usual.
@@ -1526,11 +1542,19 @@ class RequestHandler(object):
         _, expected_token, _ = self._get_raw_xsrf_token()
         if not token:
             raise HTTPError(403, "'_xsrf' argument has invalid format")
+        # 这里不是简单的使用 == 比较
+        # 需要考虑安全，如果一个一个字符的比较，通过分析统计时间，进行 timing attack
+        # 所以需要“恒时”比较.
+        # https://docs.python.org/3/library/hmac.html#hmac.compare_digest
         if not hmac.compare_digest(utf8(token), utf8(expected_token)):
             raise HTTPError(403, "XSRF cookie does not match POST argument")
 
     def xsrf_form_html(self) -> str:
         """An HTML ``<input/>`` element to be included with all POST forms.
+
+        # 把签名过的 token 放到 html 里面.
+        # 如果设置了 xsrf_cookies, 必须包含这个在 html 表单中.
+        # 因为需要比较.
 
         It defines the ``_xsrf`` input value, which we check on all POST
         requests to prevent cross-site request forgery. If you have set
