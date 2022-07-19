@@ -15,18 +15,11 @@
 
 """An I/O event loop for non-blocking sockets.
 
-In Tornado 6.0, `.IOLoop` is a wrapper around the `asyncio` event
-loop, with a slightly different interface for historical reasons.
-Applications can use either the `.IOLoop` interface or the underlying
-`asyncio` event loop directly (unless compatibility with older
-versions of Tornado is desired, in which case `.IOLoop` must be used).
-
-Typical applications will use a single `IOLoop` object, accessed via
-`IOLoop.current` class method. The `IOLoop.start` method (or
-equivalently, `asyncio.AbstractEventLoop.run_forever`) should usually
-be called at the end of the ``main()`` function. Atypical applications
-may use more than one `IOLoop`, such as one `IOLoop` per thread, or
-per `unittest` case.
+In Tornado 6.0, `.IOLoop` is a wrapper around the `asyncio` event loop, with a
+slightly different interface. The `.IOLoop` interface is now provided primarily
+for backwards compatibility; new code should generally use the `asyncio` event
+loop interface directly. The `IOLoop.current` class method provides the
+`IOLoop` instance corresponding to the running `asyncio` event loop.
 
 """
 
@@ -79,8 +72,7 @@ _S = TypeVar("_S", bound=_Selectable)
 class IOLoop(Configurable):
     """An I/O event loop.
 
-    As of Tornado 6.0, `IOLoop` is a wrapper around the `asyncio` event
-    loop.
+    As of Tornado 6.0, `IOLoop` is a wrapper around the `asyncio` event loop.
 
     Example usage for a simple TCP server:
 
@@ -127,20 +119,21 @@ class IOLoop(Configurable):
     .. testoutput::
        :hide:
 
-    Do not attempt to construct an `IOLoop` directly; this is deprecated
-    since Tornado 6.2. Instead, initialize the `asyncio` event loop and
-    use `IOLoop.current()` to access an `IOLoop` wrapper around the
-    current event loop.
+    Most applications should not attempt to construct an `IOLoop` directly,
+    and instead initialize the `asyncio` event loop and use `IOLoop.current()`.
+    In some cases, such as in test frameworks when initializing an `IOLoop`
+    to be run in a secondary thread, it may be appropriate to construct
+    an `IOLoop` with ``IOLoop(make_current=False)``. Constructing an `IOLoop`
+    without the ``make_current=False`` argument is deprecated since Tornado 6.2.
 
-    In general, an `IOLoop` cannot survive a fork or be shared across
-    processes in any way. When multiple processes are being used, each
-    process should create its own `IOLoop`, which also implies that
-    any objects which depend on the `IOLoop` (such as
-    `.AsyncHTTPClient`) must also be created in the child processes.
-    As a guideline, anything that starts processes (including the
-    `tornado.process` and `multiprocessing` modules) should do so as
-    early as possible, ideally the first thing the application does
-    after loading its configuration in ``main()``.
+    In general, an `IOLoop` cannot survive a fork or be shared across processes
+    in any way. When multiple processes are being used, each process should
+    create its own `IOLoop`, which also implies that any objects which depend on
+    the `IOLoop` (such as `.AsyncHTTPClient`) must also be created in the child
+    processes. As a guideline, anything that starts processes (including the
+    `tornado.process` and `multiprocessing` modules) should do so as early as
+    possible, ideally the first thing the application does after loading its
+    configuration, and *before* any calls to `.IOLoop.start` or `asyncio.run`.
 
     .. versionchanged:: 4.2
        Added the ``make_current`` keyword argument to the `IOLoop`
@@ -148,13 +141,13 @@ class IOLoop(Configurable):
 
     .. versionchanged:: 5.0
 
-       Uses the `asyncio` event loop by default. The
-       ``IOLoop.configure`` method cannot be used on Python 3 except
-       to redundantly specify the `asyncio` event loop.
+       Uses the `asyncio` event loop by default. The ``IOLoop.configure`` method
+       cannot be used on Python 3 except to redundantly specify the `asyncio`
+       event loop.
 
     .. deprecated:: 6.2
        It is deprecated to create an event loop that is "current" but not
-       currently running. This means it is deprecated to pass
+       running. This means it is deprecated to pass
        ``make_current=True`` to the ``IOLoop`` constructor, or to create
        an ``IOLoop`` while no asyncio event loop is running unless
        ``make_current=False`` is used.
@@ -173,15 +166,12 @@ class IOLoop(Configurable):
     def configure(
         cls, impl: "Union[None, str, Type[Configurable]]", **kwargs: Any
     ) -> None:
-        if asyncio is not None:
-            from tornado.platform.asyncio import BaseAsyncIOLoop
+        from tornado.platform.asyncio import BaseAsyncIOLoop
 
-            if isinstance(impl, str):
-                impl = import_object(impl)
-            if isinstance(impl, type) and not issubclass(impl, BaseAsyncIOLoop):
-                raise RuntimeError(
-                    "only AsyncIOLoop is allowed when asyncio is available"
-                )
+        if isinstance(impl, str):
+            impl = import_object(impl)
+        if isinstance(impl, type) and not issubclass(impl, BaseAsyncIOLoop):
+            raise RuntimeError("only AsyncIOLoop is allowed when asyncio is available")
         super(IOLoop, cls).configure(impl, **kwargs)
 
     @staticmethod
@@ -324,7 +314,11 @@ class IOLoop(Configurable):
            This method also clears the current `asyncio` event loop.
         .. deprecated:: 6.2
         """
-        warnings.warn("clear_current is deprecated", DeprecationWarning)
+        warnings.warn(
+            "clear_current is deprecated",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         IOLoop._clear_current()
 
     @staticmethod
@@ -332,8 +326,6 @@ class IOLoop(Configurable):
         old = IOLoop.current(instance=False)
         if old is not None:
             old._clear_current_hook()
-        if asyncio is None:
-            IOLoop._current.instance = None
 
     def _clear_current_hook(self) -> None:
         """Instance method called when an IOLoop ceases to be current.
@@ -876,6 +868,9 @@ class PeriodicCallback(object):
        longer than ``callback_time``, subsequent invocations will be skipped.
        Previously this was only true for regular functions, not coroutines,
        which were "fire-and-forget" for `PeriodicCallback`.
+
+       The ``callback_time`` argument now accepts `datetime.timedelta` objects,
+       in addition to the previous numeric milliseconds.
     """
 
     def __init__(
