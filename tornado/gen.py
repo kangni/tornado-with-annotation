@@ -65,6 +65,19 @@ function to extend this mechanism.
    Support added for yielding ``asyncio`` Futures and Twisted Deferreds
    via ``singledispatch``.
 
+
+Task
+
+将回调式异步函数的输出转换成 future 类型返回，以便于 yield。
+函数会自动为执行函数设置 callback, callback 的工作是将操作的返回值传递给内部创建的 future.
+    .. deprecated:: 5.1
+       This function is deprecated and will be removed in 6.0.
+
+    .. versionchanged:: 4.0
+       ``gen.Task`` is now a function that returns a `.Future`, instead of
+       a subclass of `YieldPoint`.  It still behaves the same way when
+       yielded.
+
 """
 import asyncio
 import builtins
