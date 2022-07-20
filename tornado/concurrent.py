@@ -43,7 +43,8 @@ class ReturnValueIgnoredError(Exception):
     # No longer used; was previously used by @return_future
     pass
 
-
+# 非线程安全，不过 tornado 是 single-threaded，问题不大
+# https://docs.python.org/3/library/asyncio-future.html#asyncio.Future
 Future = asyncio.Future
 
 FUTURES = (futures.Future, Future)

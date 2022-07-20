@@ -179,6 +179,15 @@ def coroutine(
 ) -> Callable[..., "Future[_T]"]:
     """Decorator for asynchronous generators.
 
+    # 需要同时使用 asynchronous 和 coroutine 时，需要注意顺序
+    # 要把 asynchronous 放在 coroutine 前面.
+    # 原因是因为 asynchronous 监控着 coroutine 返回的 future。在完成时调用 finish()
+    # https://www.tornadoweb.org/en/branch5.1/_modules/tornado/web.html#asynchronous
+    # https://stackoverflow.com/questions/27393059/why-does-the-order-of-asynchronous-and-gen-coroutine-matter-in-tornado
+
+    # 6.0 已经移除 asynchronous
+    # https://www.tornadoweb.org/en/branch5.1/web.html#tornado.web.asynchronous
+
     For compatibility with older versions of Python, coroutines may
     also "return" by raising the special exception `Return(value)
     <Return>`.
@@ -779,6 +788,8 @@ class Runner(object):
                             # for faster GC on CPython.
                             exc_info = None
                     else:
+                        # 正常无异常情况
+                        # 驱动生成器运行，恢复到 yield 断电继续运行，是整个函数的关键
                         yielded = self.gen.send(value)
 
                 except (StopIteration, Return) as e:
@@ -795,6 +806,7 @@ class Runner(object):
                     future_set_exc_info(self.result_future, sys.exc_info())
                     self.result_future = None  # type: ignore
                     return
+                # 配合 handle_yield，使用 IOLoop 注册 event.
                 if not self.handle_yield(yielded):
                     return
                 yielded = None
@@ -802,6 +814,11 @@ class Runner(object):
             self.running = False
 
     def handle_yield(self, yielded: _Yieldable) -> bool:
+        """
+        先将传入的第一个生成器结果转换成 Future 对象
+        如果 Future 还没有执行完毕，或者是 moment(一种内置的特殊 Future), 那就等待执行完毕后, 再 run
+        其他情况直接执行 run.
+        """
         try:
             self.future = convert_yielded(yielded)
         except BadYieldError:
