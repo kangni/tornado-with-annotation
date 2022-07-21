@@ -94,6 +94,12 @@ class SimpleAsyncHTTPClient(AsyncHTTPClient):
     queued. Note that time spent waiting in this queue still counts
     against the ``request_timeout``.
 
+    max_clients 是实例最大同时请求数量。超过这个数量的请求会放入 queue。
+
+    在队列中排队时间也会被算在 request_timeout 里面.
+    比如设置超时时间为 2 秒，如果排队时间超过 2 秒，即便这个请求没有发出，也会被认为超时。
+
+
     ``defaults`` is a dict of parameters that will be used as defaults on all
     `.HTTPRequest` objects submitted to this client.
 
@@ -162,11 +168,25 @@ class SimpleAsyncHTTPClient(AsyncHTTPClient):
     def fetch_impl(
         self, request: HTTPRequest, callback: Callable[[HTTPResponse], None]
     ) -> None:
+        """
+        1. 将新的 request 加入到 queue
+        2. 将新的 request 放入 waiting （等待区）
+            判断当前 active （工作区）的数量，如果超出限制，在 io_loop 注册超时事件。
+        3. 处理 waiting 区的请求。
+            先注销 ioloop 中相应的超时事件，然后将请求放入 active 区，接着发出异步 http 请求。
+            请求包含了释放资源的回调，回调会将请求移出 active 区，并重复这一步骤，继续处理 waiting 的请求，直到 waiting 区被清空。
+
+
+        超时事件是将请求移出等待区，并通过在 ioloop 注册回调的方式抛出异常。
+        """
         key = object()
+        # 将请求加入 collections.deque()
         self.queue.append((key, request, callback))
         assert request.connect_timeout is not None
         assert request.request_timeout is not None
         timeout_handle = None
+
+        # 对于超出最大同时请求量的请求，为其在 io_loop 注册超时事件
         if len(self.active) >= self.max_clients:
             timeout = (
                 min(request.connect_timeout, request.request_timeout)
@@ -178,7 +198,10 @@ class SimpleAsyncHTTPClient(AsyncHTTPClient):
                     self.io_loop.time() + timeout,
                     functools.partial(self._on_timeout, key, "in request queue"),
                 )
+        # 在等待发出的请求中添加`整个请求事件`，包括请求本身，回调，超时处理
         self.waiting[key] = (request, callback, timeout_handle)
+
+        # 处理请求队列
         self._process_queue()
         if self.queue:
             gen_log.debug(
@@ -187,13 +210,21 @@ class SimpleAsyncHTTPClient(AsyncHTTPClient):
             )
 
     def _process_queue(self) -> None:
+        # 只能处理不超过限制的请求数
         while self.queue and len(self.active) < self.max_clients:
+            # 从 queue 中取出 waiting 中的请求
             key, request, callback = self.queue.popleft()
             if key not in self.waiting:
                 continue
+
+            # 注销超时事件，退出 waiting，添加到 active
             self._remove_timeout(key)
             self.active[key] = (request, callback)
+
+            # 构建释放资源的回调
             release_callback = functools.partial(self._release_fetch, key)
+
+            # 真正发送请求
             self._handle_request(request, release_callback, callback)
 
     def _connection_class(self) -> type:
@@ -217,10 +248,12 @@ class SimpleAsyncHTTPClient(AsyncHTTPClient):
         )
 
     def _release_fetch(self, key: object) -> None:
+        # 完成请求后释放资源，退出 active
         del self.active[key]
         self._process_queue()
 
     def _remove_timeout(self, key: object) -> None:
+        #  注销超时事件，退出 waiting
         if key in self.waiting:
             request, callback, timeout_handle = self.waiting[key]
             if timeout_handle is not None:
@@ -229,6 +262,8 @@ class SimpleAsyncHTTPClient(AsyncHTTPClient):
 
     def _on_timeout(self, key: object, info: Optional[str] = None) -> None:
         """Timeout callback of request.
+
+        注册超时回调，退出 waiting
 
         Construct a timeout HTTPResponse when a timeout occurs.
 

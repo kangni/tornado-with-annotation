@@ -161,6 +161,9 @@ class AsyncHTTPClient(Configurable):
     well as arguments to its constructor can be set with the static
     method `configure()`
 
+    默认情况下，为了限制挂起连接的数量，单个 IOLoop 只有一个 AsyncHTTPClient instance.
+    可以通过设置 force_instance=True 来取消这个限制。
+
     All `AsyncHTTPClient` implementations support a ``defaults``
     keyword argument, which can be used to set default values for
     `HTTPRequest` attributes.  For example::
@@ -253,6 +256,8 @@ class AsyncHTTPClient(Configurable):
         **kwargs: Any
     ) -> "Future[HTTPResponse]":
         """Executes a request, asynchronously returning an `HTTPResponse`.
+
+        先统一请求，如果输入是 url ，先封装成 HTTPRequest 对象。
 
         The request may be either a string URL or an `HTTPRequest` object.
         If it is a string, we construct an `HTTPRequest` using any additional
