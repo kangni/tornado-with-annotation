@@ -596,6 +596,8 @@ class RequestHandler(object):
         This method only returns cookies that were present in the request.
         It does not see the outgoing cookies set by `set_cookie` in this
         handler.
+
+        一般用这个方法来获取 cookie
         """
         if self.request.cookies is not None and name in self.request.cookies:
             return self.request.cookies[name].value
@@ -2133,6 +2135,8 @@ class Application(ReversibleRouter):
         **kwargs: Any
     ) -> HTTPServer:
         """Starts an HTTP server for this application on the given port.
+
+        :params reuse_port 设置为 True 时，一个 CPU 运行一个进程
 
         This is a convenience alias for creating an `.HTTPServer` object and
         calling its listen method.  Keyword arguments not supported by
